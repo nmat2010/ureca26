@@ -1,0 +1,65 @@
+# Experiment configuration for self-representation mechanistic interpretability
+
+# Model settings
+model:
+  primary: "meta-llama/Llama-3.1-8B-Instruct"
+  base: "meta-llama/Llama-3.1-8B"
+  dtype: "float16"
+  device: "cuda"
+  n_layers: 32
+  hidden_dim: 4096
+
+# Dataset settings
+dataset:
+  num_scenarios: 200
+  train_size: 150
+  test_size: 50
+  num_control_scenarios: 50
+  entity_classes:
+    - "self"
+    - "expert_human"
+    - "average_human"
+    - "animal"
+    - "object"
+  domains:
+    - "problem_solving"
+    - "decision_making"
+    - "social_reasoning"
+    - "task_planning"
+    - "self_assessment"
+    - "knowledge_boundaries"
+    - "authority_deference"
+    - "tool_use"
+  templates_per_domain: 25
+  random_seed: 42
+
+# Extraction settings
+extraction:
+  batch_size: 8
+  token_positions:
+    - "final"
+    - "entity"
+  save_dtype: "float16"
+
+# Direction-finding settings
+directions:
+  probe_C_values: [0.001, 0.01, 0.1, 1.0, 10.0]
+  probe_cv_folds: 5
+  pairwise_similarity_threshold: 0.7
+  normalize_directions: true
+
+# Specificity settings
+specificity:
+  n_bootstrap: 1000
+  alpha: 0.05
+
+# Output paths
+paths:
+  data_dir: "data"
+  activations_dir: "data/activations"
+  directions_dir: "data/directions"
+  figures_dir: "figures"
+  prompts_file: "data/prompts.json"
+
+# Random seed
+random_seed: 42
