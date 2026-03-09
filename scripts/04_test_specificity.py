@@ -113,6 +113,29 @@ def main() -> None:
             ctrl_acts_dict[ctrl_type] = acts
             ctrl_labels_dict[ctrl_type] = labels if labels is not None else np.array([])
 
+    # Split animacy control into animate / inanimate for direction computation.
+    # Labels: 1 = animate, 0 = inanimate (set in dataset.py).
+    animacy_acts_animate = None
+    animacy_acts_inanimate = None
+    if "animacy" in ctrl_acts_dict:
+        anim_labels = ctrl_labels_dict["animacy"]
+        anim_acts = ctrl_acts_dict["animacy"]
+        anim_mask = anim_labels == 1
+        inanim_mask = anim_labels == 0
+        if anim_mask.sum() > 0 and inanim_mask.sum() > 0:
+            animacy_acts_animate = anim_acts[anim_mask]
+            animacy_acts_inanimate = anim_acts[inanim_mask]
+            logger.info(
+                "Animacy controls: %d animate, %d inanimate",
+                anim_mask.sum(), inanim_mask.sum(),
+            )
+        else:
+            logger.warning(
+                "Animacy control labels don't contain both animate (1) and "
+                "inanimate (0). Found labels: %s. Falling back to core splitting.",
+                np.unique(anim_labels),
+            )
+
     # Run specificity
     spec_results = test_specificity(
         core_activations=core_acts,
@@ -127,6 +150,8 @@ def main() -> None:
         best_probe_layer=dir_results.best_probe_layer,
         n_bootstrap=n_bootstrap,
         cv_folds=cv_folds,
+        animacy_acts_animate=animacy_acts_animate,
+        animacy_acts_inanimate=animacy_acts_inanimate,
     )
 
     # Save

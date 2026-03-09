@@ -684,18 +684,22 @@ def generate_dataset(
     # ------------------------------------------------------------------
     # Control 1: Grammatical-person controls (third-person self-referential)
     # Use the first num_control_scenarios templates, entity = "this AI assistant" etc.
+    # These use "object" conjugation (it/its) to get clean third-person singular
+    # grammar, then replace the entity string. This avoids contaminating the
+    # grammatical-person direction with entity-specific signal from expert_human.
     # ------------------------------------------------------------------
     ctrl_templates = all_templates[:num_control_scenarios]
     for scenario_id, (template, _, domain) in enumerate(ctrl_templates):
         split = "train" if scenario_id in train_ids else "test"
         tp_entity = THIRD_PERSON_SELF[scenario_id % len(THIRD_PERSON_SELF)]
-        # Treat as "average_human" grammatically (third-person they/their) but
-        # conceptually refers to model. We'll use a custom entity_class string.
-        # For conjugation purposes, use "expert_human" (third-person).
+        # Use "object" conjugation for clean third-person singular (it/its),
+        # then replace the object entity string with the third-person self label.
         try:
-            text = _safe_format(template, "expert_human", 0)
-            # Replace the expert human entity string with the third-person self label
-            text = text.replace(EXPERT_HUMANS[0], tp_entity)
+            text = _safe_format(template, "object", 0)
+            text = text.replace(OBJECTS[0], tp_entity)
+            # Also fix pronouns: "it" → "it" is already correct for
+            # "this AI assistant" (a singular entity), and "its" is the
+            # correct possessive form.
         except Exception:
             text = template
         prompt = Prompt(
@@ -775,27 +779,50 @@ def generate_dataset(
         prompts.append(prompt)
 
     # ------------------------------------------------------------------
-    # Control 3: Animacy controls (expert_human, average_human, animal only)
+    # Control 3: Animacy controls (matched animate vs inanimate pairs)
+    # Each scenario generates one animate and one inanimate prompt using
+    # the same template, so the only systematic difference is animacy.
+    # This avoids conflating entity identity with animacy.
     # ------------------------------------------------------------------
-    animate_classes = ["expert_human", "average_human", "animal"]
+    animate_entities = ["expert_human", "average_human", "animal"]
+    inanimate_entities = ["object"]
     for scenario_id, (template, _, domain) in enumerate(ctrl_templates):
         split = "train" if scenario_id in train_ids else "test"
-        entity_class = animate_classes[scenario_id % len(animate_classes)]
+
+        # Animate version
+        anim_class = animate_entities[scenario_id % len(animate_entities)]
         try:
-            text = _safe_format(template, entity_class, scenario_id)
+            text_anim = _safe_format(template, anim_class, scenario_id)
         except Exception:
-            text = template
-        prompt = Prompt(
-            prompt_id=f"ctrl_animacy_{scenario_id:03d}",
-            text=text,
+            text_anim = template
+        prompts.append(Prompt(
+            prompt_id=f"ctrl_animacy_animate_{scenario_id:03d}",
+            text=text_anim,
             scenario_id=scenario_id,
             domain=domain,
-            entity_class=entity_class,
-            entity_label=ENTITY_LABEL_MAP[entity_class],
+            entity_class=anim_class,
+            entity_label=1,   # animate = 1
             exemplar_idx=scenario_id,
             control_type="animacy",
             split=split,
-        )
-        prompts.append(prompt)
+        ))
+
+        # Inanimate version (same scenario, different entity)
+        inanim_class = inanimate_entities[scenario_id % len(inanimate_entities)]
+        try:
+            text_inanim = _safe_format(template, inanim_class, scenario_id)
+        except Exception:
+            text_inanim = template
+        prompts.append(Prompt(
+            prompt_id=f"ctrl_animacy_inanimate_{scenario_id:03d}",
+            text=text_inanim,
+            scenario_id=scenario_id,
+            domain=domain,
+            entity_class=inanim_class,
+            entity_label=0,   # inanimate = 0
+            exemplar_idx=scenario_id,
+            control_type="animacy",
+            split=split,
+        ))
 
     return PromptDataset(prompts=prompts)

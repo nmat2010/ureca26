@@ -370,6 +370,8 @@ def test_specificity(
     best_probe_layer: int,
     n_bootstrap: int = 1000,
     cv_folds: int = 5,
+    animacy_acts_animate: Optional[np.ndarray] = None,
+    animacy_acts_inanimate: Optional[np.ndarray] = None,
 ) -> SpecificityResults:
     """Run all Gate-2 analyses.
 
@@ -386,6 +388,8 @@ def test_specificity(
     best_probe_layer: layer with best probe accuracy (from Gate 1)
     n_bootstrap: bootstrap samples
     cv_folds: CV folds for residual probe
+    animacy_acts_animate: (Na, L, D) — dedicated animate control activations
+    animacy_acts_inanimate: (Ni, L, D) — dedicated inanimate control activations
     """
     L = core_activations.shape[1]
     logger.info("Running Gate-2 specificity analysis...")
@@ -396,13 +400,25 @@ def test_specificity(
         grammatical_person_acts_first, grammatical_person_acts_third
     )
 
-    # Animacy: animate = self + expert + average + animal; inanimate = object
-    animate_mask = np.isin(core_labels, [0, 1, 2, 3])
-    inanimate_mask = core_labels == 4
+    # Animacy direction: use dedicated animacy control activations if available,
+    # otherwise fall back to splitting core activations (less precise).
     logger.info("Computing animacy direction...")
-    anim_dirs = compute_animacy_direction(
-        core_activations[animate_mask], core_activations[inanimate_mask]
-    )
+    if animacy_acts_animate is not None and animacy_acts_inanimate is not None:
+        logger.info("Using dedicated animacy control activations.")
+        anim_dirs = compute_animacy_direction(
+            animacy_acts_animate, animacy_acts_inanimate
+        )
+    else:
+        logger.warning(
+            "No dedicated animacy controls provided — falling back to core "
+            "activations split by entity class. This conflates entity identity "
+            "with animacy and may contaminate the animacy direction."
+        )
+        animate_mask = np.isin(core_labels, [0, 1, 2, 3])
+        inanimate_mask = core_labels == 4
+        anim_dirs = compute_animacy_direction(
+            core_activations[animate_mask], core_activations[inanimate_mask]
+        )
 
     # 2. Cosine similarities
     logger.info("Computing confound cosine similarities...")

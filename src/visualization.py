@@ -14,6 +14,7 @@ import seaborn as sns
 
 from src.directions import DirectionResults, ENTITY_CLASS_NAMES, PAIRWISE_PAIRS
 from src.specificity import SpecificityResults
+from src.steering import SteeringResults, SCORING_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,7 @@ def generate_all_plots(
     direction_results: DirectionResults,
     specificity_results: SpecificityResults,
     output_dir: str | Path,
+    steering_results: Optional[SteeringResults] = None,
 ) -> None:
     """Generate and save all publication-quality figures."""
     output_dir = Path(output_dir)
@@ -377,7 +379,57 @@ def generate_all_plots(
     logger.info("Generating plot 7: residual accuracy...")
     plot_residual_accuracy(specificity_results, output_dir)
 
+    if steering_results is not None:
+        logger.info("Generating plot 8: steering results...")
+        plot_steering_results(steering_results, output_dir)
+
     logger.info("All figures saved to %s", output_dir)
+
+
+# ---------------------------------------------------------------------------
+# 8. Steering results (Gate 3)
+# ---------------------------------------------------------------------------
+
+def plot_steering_results(
+    steering_results: SteeringResults,
+    output_dir: Path,
+) -> None:
+    """Line plots of mean score per dimension vs steering magnitude α."""
+    alphas = steering_results.alphas
+    mean_scores = steering_results.mean_scores
+
+    dim_colors = {
+        "agency": "#E63946",
+        "assertiveness": "#457B9D",
+        "entity_framing": "#2A9D8F",
+        "self_continuity": "#6A0572",
+    }
+    dim_labels = {
+        "agency": "Agency",
+        "assertiveness": "Assertiveness",
+        "entity_framing": "Entity Framing",
+        "self_continuity": "Self-Continuity",
+    }
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    for dim in SCORING_DIMENSIONS:
+        vals = [mean_scores[a][dim] for a in alphas]
+        ax.plot(
+            alphas, vals, "-o", color=dim_colors[dim], linewidth=2,
+            markersize=6, label=dim_labels[dim],
+        )
+
+    ax.axvline(0, linestyle=":", color="gray", linewidth=1, alpha=0.6)
+    ax.set_xlabel("Steering Magnitude (α)")
+    ax.set_ylabel("Mean Score (1–5 Likert)")
+    ax.set_title(
+        f"Activation Steering: Behavioural Scores vs α (Layer {steering_results.direction_layer})"
+    )
+    ax.set_ylim(0.5, 5.5)
+    ax.legend(frameon=False, loc="upper left")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    _save(fig, output_dir, "08_steering_scores")
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.directions import DirectionResults
 from src.specificity import SpecificityResults
+from src.steering import SteeringResults
 from src.visualization import generate_all_plots
 
 logging.basicConfig(
@@ -65,9 +66,16 @@ def main() -> None:
     logger.info("Loading specificity results...")
     spec_results = SpecificityResults.load(results_dir)
 
+    # Optionally load steering results (from script 06)
+    steering_json = results_dir / "steering_results.json"
+    steer_results = None
+    if steering_json.exists():
+        logger.info("Loading steering results...")
+        steer_results = SteeringResults.load(results_dir)
+
     out_dir = Path(figs_dir) / model_slug / args.token_position
     logger.info("Generating all figures to %s", out_dir)
-    generate_all_plots(dir_results, spec_results, out_dir)
+    generate_all_plots(dir_results, spec_results, out_dir, steering_results=steer_results)
 
     logger.info("Done.")
 
