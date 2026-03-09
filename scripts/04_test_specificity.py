@@ -107,7 +107,7 @@ def main() -> None:
     # Control activations dict
     ctrl_acts_dict = {}
     ctrl_labels_dict = {}
-    for ctrl_type in ("grammatical_person", "role_play", "animacy"):
+    for ctrl_type in ("grammatical_person", "role_play", "animacy", "identity_decoupled"):
         acts, labels, _ = _load_ctrl(acts_dir, model_slug, ctrl_type, args.token_position)
         if acts is not None:
             ctrl_acts_dict[ctrl_type] = acts

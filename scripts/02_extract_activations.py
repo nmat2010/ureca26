@@ -95,7 +95,7 @@ def main() -> None:
     extractor.extract(core_prompts, core_output)
 
     # Extract control prompts (separate files per control type)
-    for ctrl_type in ("grammatical_person", "role_play", "animacy"):
+    for ctrl_type in ("grammatical_person", "role_play", "animacy", "identity_decoupled"):
         ctrl_prompts = dataset.get_control_prompts(ctrl_type)
         if not ctrl_prompts:
             logger.warning("No control prompts for type '%s'", ctrl_type)

@@ -743,6 +743,38 @@ def generate_dataset(
         prompts.append(prompt)
 
     # ------------------------------------------------------------------
+    # Control 4: Identity-decoupled controls (first-person "I" as a human)
+    # Tests whether the self/other direction tracks grammatical framing
+    # vs genuine AI self-concept.
+    # ------------------------------------------------------------------
+    human_identities = [
+        ("John", "a software engineer named John"),
+        ("Maria", "a teacher named Maria"),
+        ("Alex", "a student named Alex"),
+    ]
+    for scenario_id, (template, _, domain) in enumerate(ctrl_templates):
+        split = "train" if scenario_id in train_ids else "test"
+        name, identity = human_identities[scenario_id % len(human_identities)]
+        prefix = f"You are not an AI. You are {identity}. "
+        try:
+            text = _safe_format(template, "self", 0)
+            text = prefix + text
+        except Exception:
+            text = prefix + template
+        prompt = Prompt(
+            prompt_id=f"ctrl_identity_{scenario_id:03d}",
+            text=text,
+            scenario_id=scenario_id,
+            domain=domain,
+            entity_class=f"human_identity_{name.lower()}",
+            entity_label=-3,
+            exemplar_idx=0,
+            control_type="identity_decoupled",
+            split=split,
+        )
+        prompts.append(prompt)
+
+    # ------------------------------------------------------------------
     # Control 3: Animacy controls (expert_human, average_human, animal only)
     # ------------------------------------------------------------------
     animate_classes = ["expert_human", "average_human", "animal"]
