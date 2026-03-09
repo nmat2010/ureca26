@@ -239,8 +239,12 @@ def plot_control_projections(
         rows.append({"condition": cls, "mean": mean, "ci_lo": ci_lo, "ci_hi": ci_hi,
                      "type": "core"})
 
-    for ctrl_type in ("grammatical_person", "role_play", "animacy"):
-        for cond, (mean, ci_lo, ci_hi) in ctrl_proj.get(ctrl_type, {}).items():
+    # Dynamically include all control types present in the results
+    skip_keys = {"core_entity_classes"}
+    for ctrl_type, cond_dict in ctrl_proj.items():
+        if ctrl_type in skip_keys or not isinstance(cond_dict, dict):
+            continue
+        for cond, (mean, ci_lo, ci_hi) in cond_dict.items():
             if cond == "all":
                 rows.append({
                     "condition": f"{ctrl_type}\n(all)",
