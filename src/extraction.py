@@ -55,16 +55,19 @@ def find_entity_token_idx(
         Token index (0-indexed) of last entity token in the prompt.
     """
     tokens = tokenizer.encode(prompt_text, add_special_tokens=True)
-    entity_tokens = tokenizer.encode(entity_str, add_special_tokens=False)
-
-    # Search for entity token subsequence in full token list
     n = len(tokens)
-    m = len(entity_tokens)
-    for start in range(n - m + 1):
-        if tokens[start : start + m] == entity_tokens:
-            return start + m - 1  # last token of entity phrase
 
-    # Fallback: find the closest single-token match
+    # Try both bare and space-prefixed forms to handle SentencePiece's ▁ prefix.
+    # In LLaMA's tokenizer "I" and " I" are different token IDs; the in-context
+    # form always has a leading space, so we must try " entity_str" first.
+    candidates = [" " + entity_str, entity_str]
+    for candidate in candidates:
+        entity_tokens = tokenizer.encode(candidate, add_special_tokens=False)
+        m = len(entity_tokens)
+        for start in range(n - m + 1):
+            if tokens[start : start + m] == entity_tokens:
+                return start + m - 1  # last token of entity phrase
+
     logger.warning(
         "Could not find entity token subsequence for '%s' in prompt. "
         "Falling back to final token.",
@@ -148,7 +151,7 @@ class ActivationExtractor:
         self._model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             torch_dtype=self.dtype,
-            device_map=self.device,
+            device_map="auto",  # split across GPU+CPU automatically to avoid OOM
         )
         self._model.eval()
         # Mark as HF mode
