@@ -356,10 +356,14 @@ class ActivationExtractor:
         """Resolve entity surface string for a prompt."""
         if entity_strs is not None and global_idx < len(entity_strs):
             return entity_strs[global_idx]
-        # Infer from entity_class
-        from src.dataset import get_entity_str, ENTITY_CLASSES
+        from src.dataset import get_entity_str, ENTITY_CLASSES, THIRD_PERSON_SELF
         if prompt.entity_class in ENTITY_CLASSES:
             return get_entity_str(prompt.entity_class, prompt.exemplar_idx)
+        # For third_person_self control prompts, find which label appears in the text
+        if prompt.entity_class == "third_person_self":
+            for label in THIRD_PERSON_SELF:
+                if label in prompt.text:
+                    return label
         return "I"  # safe default
 
 
