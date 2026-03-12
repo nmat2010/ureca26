@@ -226,7 +226,7 @@ def compute_probe_directions(
         best_C = _select_C(X_tr_scaled, y_train, C_values, cv_folds)
 
         probe = LogisticRegression(
-            C=best_C, max_iter=1000, solver="lbfgs", random_state=42
+            C=best_C, max_iter=1000, solver="liblinear", random_state=42
         )
         probe.fit(X_tr_scaled, y_train)
 
@@ -252,7 +252,7 @@ def _select_C(
     cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
     best_C, best_score = C_values[0], -1.0
     for C in C_values:
-        model = LogisticRegression(C=C, max_iter=500, solver="lbfgs", random_state=42)
+        model = LogisticRegression(C=C, max_iter=500, solver="liblinear", random_state=42)
         scores = cross_val_score(model, X, y, cv=cv, scoring="accuracy")
         mean_score = scores.mean()
         if mean_score > best_score:
