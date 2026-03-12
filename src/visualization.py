@@ -209,6 +209,12 @@ def plot_confound_similarity(
         linestyle=":", color="black", linewidth=1, alpha=0.6,
         label=f"Most specific layer ({spec_results.best_specific_layer})",
     )
+    if hasattr(spec_results, "best_combined_layer"):
+        ax.axvline(
+            spec_results.best_combined_layer,
+            linestyle="-.", color="green", linewidth=1, alpha=0.6,
+            label=f"Best combined layer ({spec_results.best_combined_layer})",
+        )
     ax.set_xlabel("Layer")
     ax.set_ylabel("|Cosine similarity|")
     ax.set_title("Self/Other Direction vs. Confound Directions")
@@ -379,15 +385,49 @@ def generate_all_plots(
     logger.info("Generating plot 7: residual accuracy...")
     plot_residual_accuracy(specificity_results, output_dir)
 
+    if hasattr(direction_results, "contrastive_consistency"):
+        logger.info("Generating plot 8: contrastive consistency...")
+        plot_contrastive_consistency(direction_results, output_dir)
+
     if steering_results is not None:
-        logger.info("Generating plot 8: steering results...")
+        logger.info("Generating plot 9: steering results...")
         plot_steering_results(steering_results, output_dir)
 
     logger.info("All figures saved to %s", output_dir)
 
 
 # ---------------------------------------------------------------------------
-# 8. Steering results (Gate 3)
+# 8. Contrastive direction consistency (Fix 3)
+# ---------------------------------------------------------------------------
+
+def plot_contrastive_consistency(
+    results: DirectionResults,
+    output_dir: Path,
+) -> None:
+    """Plot contrastive direction consistency (variance explained by PC1) across layers."""
+    L = results.n_layers
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.plot(
+        range(L), results.contrastive_consistency,
+        color=PALETTE["self"], linewidth=2, label="PC1 variance explained",
+    )
+    ax.axhline(0.75, linestyle="--", color=PALETTE["chance"], linewidth=1.2,
+               label="Threshold (0.75)")
+    ax.axvline(results.best_probe_layer, linestyle=":", color="black", linewidth=1,
+               alpha=0.6, label=f"Best probe layer ({results.best_probe_layer})")
+    ax.set_xlabel("Layer")
+    ax.set_ylabel("Fraction of variance explained")
+    ax.set_title("Contrastive Direction Consistency (SVD of Pairwise Directions)")
+    ax.set_xlim(0, L - 1)
+    ax.set_ylim(0, 1.05)
+    ax.legend(frameon=False)
+    ax.xaxis.set_major_locator(mticker.MultipleLocator(4))
+    fig.tight_layout()
+    _save(fig, output_dir, "08_contrastive_consistency")
+
+
+# ---------------------------------------------------------------------------
+# 9. Steering results (Gate 3)
 # ---------------------------------------------------------------------------
 
 def plot_steering_results(
@@ -429,7 +469,7 @@ def plot_steering_results(
     ax.legend(frameon=False, loc="upper left")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    _save(fig, output_dir, "08_steering_scores")
+    _save(fig, output_dir, "09_steering_scores")
 
 
 # ---------------------------------------------------------------------------

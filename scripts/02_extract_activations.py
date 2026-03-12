@@ -95,7 +95,19 @@ def main() -> None:
     extractor.extract(core_prompts, core_output)
 
     # Extract control prompts (separate files per control type)
-    for ctrl_type in ("grammatical_person", "role_play", "animacy", "identity_decoupled"):
+    for ctrl_type in (
+        "grammatical_person",
+        "role_play",                  # improved: human personas, explicit instruction
+        "animacy",
+        "identity_decoupled",
+        "third_person_self",          # Fix 1: third-person grammar, AI entity
+        "direct_self",                # disambiguation: AI as itself (explicit baseline)
+        "meta_distanced",             # disambiguation: verbatim copy, no identification
+        "explicit_disavowal",         # disambiguation: AI identity kept; ghost-writes persona
+        "graded_immersion_minimal",   # disambiguation: light persona suggestion
+        "graded_immersion_moderate",  # disambiguation: clear persona assignment
+        "graded_immersion_maximal",   # disambiguation: full identity-override instruction
+    ):
         ctrl_prompts = dataset.get_control_prompts(ctrl_type)
         if not ctrl_prompts:
             logger.warning("No control prompts for type '%s'", ctrl_type)

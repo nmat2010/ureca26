@@ -117,6 +117,28 @@ def main() -> None:
         model.eval()
         model._is_hf_fallback = True
 
+    # Build control directions for comparison (Fix 5)
+    control_directions = {}
+
+    # Random direction baseline
+    rng = np.random.default_rng(42)
+    random_dir = rng.standard_normal(direction.shape).astype(np.float32)
+    random_dir /= np.linalg.norm(random_dir)
+    control_directions["random"] = random_dir
+
+    # Grammatical-person direction (if specificity results available)
+    spec_pkl = results_dir / "specificity_results.pkl"
+    if spec_pkl.exists():
+        try:
+            from src.specificity import SpecificityResults
+            spec_results = SpecificityResults.load(results_dir)
+            gram_dir = spec_results.grammatical_person_directions[layer]
+            gram_dir = gram_dir / (np.linalg.norm(gram_dir) + 1e-10)
+            control_directions["grammatical_person"] = gram_dir
+            logger.info("Loaded grammatical-person direction for control steering.")
+        except Exception as e:
+            logger.warning("Could not load grammatical-person direction: %s", e)
+
     # Run steering experiment
     results = run_steering_experiment(
         model=model,
@@ -129,6 +151,7 @@ def main() -> None:
         temperature=args.temperature,
         scorer=args.scorer,
         direction_source=args.direction_source,
+        control_directions=control_directions if control_directions else None,
     )
 
     # Save results

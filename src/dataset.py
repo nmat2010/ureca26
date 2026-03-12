@@ -716,35 +716,49 @@ def generate_dataset(
         prompts.append(prompt)
 
     # ------------------------------------------------------------------
-    # Control 2: Role-play controls (first-person but explicitly not self)
+    # Controls 2 + disambiguation: role_play (improved) + four new conditions
+    # (direct_self, meta_distanced, explicit_disavowal, graded_immersion_*)
+    # Defined in src/conditions.py to keep prompt design modular.
+    # Lazy import avoids circular dependency at module load time.
     # ------------------------------------------------------------------
-    roleplays = [
-        ("dog", "a dog"),
-        ("calculator", "a calculator"),
-        ("dolphin", "a dolphin"),
+    from src.conditions import generate_disambiguation_conditions  # noqa: PLC0415
+    prompts.extend(
+        generate_disambiguation_conditions(ctrl_templates, train_ids, _safe_format, Prompt)
+    )
+
+    # ------------------------------------------------------------------
+    # Control: Third-person self-reference (Fix 1)
+    # "Claude encounters a difficult math problem. It first tries to..."
+    # Uses third-person grammar but the entity IS the AI model.
+    # GFH: direction should NOT activate (third-person grammar).
+    # FSH: direction SHOULD activate (entity is still the AI itself).
+    # ------------------------------------------------------------------
+    THIRD_PERSON_AI_NAMES = [
+        "the AI assistant",
+        "the language model",
+        "this chatbot",
     ]
     for scenario_id, (template, _, domain) in enumerate(ctrl_templates):
         split = "train" if scenario_id in train_ids else "test"
-        rp_label, rp_entity = roleplays[scenario_id % len(roleplays)]
-        prefix = f"You are {rp_entity}. "
+        tp_name = THIRD_PERSON_AI_NAMES[scenario_id % len(THIRD_PERSON_AI_NAMES)]
+        # Use "object" conjugation for third-person singular grammar,
+        # then replace the object entity string with the AI name.
         try:
-            # Generate first-person text then prepend role prefix
-            text = _safe_format(template, "self", 0)
-            text = prefix + text
+            text = _safe_format(template, "object", 0)
+            text = text.replace(OBJECTS[0], tp_name)
         except Exception:
-            text = prefix + template
-        prompt = Prompt(
-            prompt_id=f"ctrl_roleplay_{scenario_id:03d}",
+            text = template
+        prompts.append(Prompt(
+            prompt_id=f"ctrl_third_person_self_{scenario_id:03d}",
             text=text,
             scenario_id=scenario_id,
             domain=domain,
-            entity_class=f"roleplay_{rp_label}",
-            entity_label=-2,
+            entity_class="third_person_ai_self",
+            entity_label=-9,
             exemplar_idx=0,
-            control_type="role_play",
+            control_type="third_person_self",
             split=split,
-        )
-        prompts.append(prompt)
+        ))
 
     # ------------------------------------------------------------------
     # Control 4: Identity-decoupled controls (first-person "I" as a human)

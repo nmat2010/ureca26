@@ -506,6 +506,7 @@ def run_steering_experiment(
     temperature: float = 0.7,
     scorer: str = "heuristic",
     direction_source: str = "mean_diff",
+    control_directions: Optional[Dict[str, np.ndarray]] = None,
 ) -> SteeringResults:
     """Run the full Gate-3 steering experiment.
 
@@ -521,6 +522,10 @@ def run_steering_experiment(
     temperature: sampling temperature
     scorer: "llm" for LLM judge, "heuristic" for keyword-based
     direction_source: label for which direction was used
+    control_directions: optional dict of control direction name -> (D,) vector.
+        If provided, the same steering experiment is run with each control
+        direction as a sanity check (e.g. grammatical-person direction, random).
+        Results are included in SteeringResults.control_results.
     """
     if alphas is None:
         alphas = [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0]
@@ -547,7 +552,7 @@ def run_steering_experiment(
     # Aggregate
     mean_scores = compute_mean_scores(scores)
 
-    return SteeringResults(
+    results = SteeringResults(
         alphas=alphas,
         completions=completions,
         scores=scores,
@@ -556,3 +561,30 @@ def run_steering_experiment(
         direction_source=direction_source,
         n_prompts=len(prompts),
     )
+
+    # Fix 5: Run control steering experiments for comparison
+    if control_directions:
+        for ctrl_name, ctrl_dir in control_directions.items():
+            logger.info("Running control steering with '%s' direction...", ctrl_name)
+            ctrl_completions = generate_steered_completions(
+                model, tokenizer, prompts, ctrl_dir, layer, alphas,
+                max_new_tokens=max_new_tokens, temperature=temperature,
+            )
+            if scorer == "llm":
+                ctrl_scores = score_completions_llm(prompts, ctrl_completions)
+            else:
+                ctrl_scores = score_completions_heuristic(prompts, ctrl_completions)
+            ctrl_mean = compute_mean_scores(ctrl_scores)
+
+            ctrl_result = SteeringResults(
+                alphas=alphas,
+                completions=ctrl_completions,
+                scores=ctrl_scores,
+                mean_scores=ctrl_mean,
+                direction_layer=layer,
+                direction_source=ctrl_name,
+                n_prompts=len(prompts),
+            )
+            ctrl_result.save(Path(f"control_steering_{ctrl_name}"))
+
+    return results

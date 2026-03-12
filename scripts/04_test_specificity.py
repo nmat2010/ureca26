@@ -107,7 +107,12 @@ def main() -> None:
     # Control activations dict
     ctrl_acts_dict = {}
     ctrl_labels_dict = {}
-    for ctrl_type in ("grammatical_person", "role_play", "animacy", "identity_decoupled"):
+    for ctrl_type in (
+        "grammatical_person", "role_play", "animacy", "identity_decoupled",
+        "third_person_self",
+        "direct_self", "meta_distanced", "explicit_disavowal",
+        "graded_immersion_minimal", "graded_immersion_moderate", "graded_immersion_maximal",
+    ):
         acts, labels, _ = _load_ctrl(acts_dir, model_slug, ctrl_type, args.token_position)
         if acts is not None:
             ctrl_acts_dict[ctrl_type] = acts
@@ -148,10 +153,12 @@ def main() -> None:
         control_activations_by_type=ctrl_acts_dict,
         control_labels_by_type=ctrl_labels_dict,
         best_probe_layer=dir_results.best_probe_layer,
+        probe_test_acc=dir_results.probe_test_acc,
         n_bootstrap=n_bootstrap,
         cv_folds=cv_folds,
         animacy_acts_animate=animacy_acts_animate,
         animacy_acts_inanimate=animacy_acts_inanimate,
+        use_inlp=True,
     )
 
     # Save
@@ -160,6 +167,9 @@ def main() -> None:
 
     logger.info("Best specific layer (lowest confound similarity): %d",
                 spec_results.best_specific_layer)
+    logger.info("Best combined layer (acc * (1 - mean|cos|)): %d (score=%.3f)",
+                spec_results.best_combined_layer,
+                spec_results.combined_layer_score[spec_results.best_combined_layer])
     logger.info(
         "At best probe layer %d — cos(self/other, grammatical): %.3f | cos(self/other, animacy): %.3f",
         dir_results.best_probe_layer,

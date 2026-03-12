@@ -1,103 +1,93 @@
-# self-repr
+# Self-Representation in LLM
 
 Mechanistic interpretability research investigating whether LLaMA-3.1-8B-Instruct encodes a structured self/other direction in its residual stream.
 
 **Gate 1 (Existence):** Is there a linear direction separating self-referential from other-referential activations?
 **Gate 2 (Specificity):** Is that direction reducible to grammatical person, animacy, or instruction-tuning artifacts?
+**Gate 3 (Causality):** Does manipulating that direction actually change the model's behaviour?
 
 ---
 
-## AWS EC2 Setup
+## Running the experiment
 
-**Recommended instance:** `g5.xlarge` (1× A10G 24 GB, ~$1.006/hr) or `g5.2xlarge`
+The main file is `notebooks/llama_self_representation_mechanistic_interp.ipynb`, designed to run on **Google Colab with an A100 GPU**.
 
-**AMI:** AWS Deep Learning AMI (Ubuntu 22.04) with PyTorch pre-installed
+### Setup
 
-**Storage:** 100 GB EBS gp3
+1. Open the notebook in Colab and select an A100 runtime (Runtime → Change runtime type → A100).
+2. Store your tokens as Colab Secrets (key icon in the left sidebar):
+   - `HF_TOKEN` — HuggingFace token with access to `meta-llama/Llama-3.1-8B-Instruct` ([request access here](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct))
+   - `ANTHROPIC_API_KEY` — optional, only needed for LLM-based scoring in Gate 3
+3. Mount Google Drive (Part 0) — all outputs persist there under `MyDrive/ureca26_outputs/`.
+4. The notebook clones this repo and installs dependencies automatically.
 
-### Launch steps
+### Notebook Structure
 
-1. Launch a `g5.xlarge` instance with the Deep Learning AMI, 100 GB gp3 root volume.
-2. Open inbound SSH (port 22) in the security group.
-3. SSH in:
-   ```bash
-   ssh -i your-key.pem ubuntu@<instance-public-ip>
-   ```
-4. Activate the PyTorch environment (pre-installed on the AMI):
-   ```bash
-   source activate pytorch
-   ```
-5. Clone this repo:
-   ```bash
-   git clone <your-repo-url> self-repr && cd self-repr
-   ```
-6. Install dependencies:
-   ```bash
-   pip install -e .
-   ```
-7. Log in to HuggingFace (required for LLaMA — you must accept Meta's license first at huggingface.co/meta-llama):
-   ```bash
-   huggingface-cli login
-   ```
+| Part | Section | Description |
+|------|---------|-------------|
+| **Part 0** | Environment Setup | GPU check, Drive mount, repo clone, HF auth, output paths |
+| **Part 1** | Gate 1 — Existence | Generate 200 scenarios × 5 entity classes; extract activations; find self/other directions via mean-diff, probe, and contrastive SVD |
+| **Part 2** | Gate 2 — Specificity | Confound analysis (grammatical person, animacy); INLP confound removal; combined layer selection score |
+| **Part 3** | Disambiguation | 7 new conditions testing GFH vs FSH (direct_self, role_play, meta_distanced, explicit_disavowal, graded_immersion ×3, third_person_self) |
+| **Part 4** | Gate 3 — Causality | Activation steering with self/other, random, and grammatical-person directions |
+| **Part 5** | Cross-Model | Base model comparison; optional Mistral-7B |
+| **Part 6** | Interpretation | Decision tree for interpreting results |
+
+If the session disconnects after activations are saved to Drive, you can skip to any later step.
 
 ---
 
-## Install (local or EC2)
+## Key Methods
 
-```bash
-pip install -e .
-# or with dev dependencies:
-pip install -e ".[dev]"
+### Direction Finding
+- **Mean-difference:** `normalise(mean(self_acts) - mean(other_acts))` per layer
+- **Logistic probe:** L2-regularised logistic regression weight vector with CV-selected C
+- **Contrastive SVD:** First principal component of the 4 pairwise self-vs-other directions — captures the direction most consistent across all contrasts
+
+### Confound Removal (INLP)
+Iterative Null-Space Projection removes the entire confound subspace (not just one direction) by iteratively training classifiers and projecting out their decision boundaries.
+
+### Layer Selection
+Combined score: `test_acc × (1 - mean|cos_confound|)` — balances probe accuracy against confound overlap.
+
+### Disambiguation Conditions
+7 conditions that hold first-person grammar constant while varying self-identification. See `docs/research_guide.md` for full details.
+
+### Control Steering
+Gate 3 compares steering with the self/other direction against random and grammatical-person directions to verify specificity of causal effects.
+
+---
+
+## Outputs
+
+All outputs are written to Google Drive under `MyDrive/ureca26_outputs/`:
+
+```
+ureca26_outputs/
+├── data/
+│   ├── prompts.json
+│   ├── activations/          # HDF5 files, one per condition × model
+│   └── directions/
+│       ├── meta-llama_Llama-3.1-8B-Instruct/final/
+│       │   ├── direction_results.pkl
+│       │   ├── specificity_results.pkl
+│       │   └── steering_results.json
+│       └── meta-llama_Llama-3.1-8B/final/
+│           └── ...
+└── figures/
+    ├── meta-llama_Llama-3.1-8B-Instruct/final/
+    ├── meta-llama_Llama-3.1-8B/final/
+    └── cross_model_comparison.png
 ```
 
 ---
 
-## Quick start
+## Documentation
 
-Run scripts in order:
-
-```bash
-python scripts/01_generate_prompts.py --config configs/experiment.yaml
-python scripts/02_extract_activations.py --config configs/experiment.yaml
-python scripts/03_find_directions.py --config configs/experiment.yaml
-python scripts/04_test_specificity.py --config configs/experiment.yaml
-python scripts/05_visualize.py --config configs/experiment.yaml
-```
-
-All outputs go into `data/` and `figures/`. Each script is independently re-runnable.
-
-### Common overrides
-
-```bash
-# Use smaller batch size if OOM
-python scripts/02_extract_activations.py --batch_size 4
-
-# Use entity token position instead of final token
-python scripts/03_find_directions.py --token_position entity
-python scripts/04_test_specificity.py --token_position entity
-python scripts/05_visualize.py --token_position entity
-
-# Extract base model for comparison
-python scripts/02_extract_activations.py --base_model
-```
-
----
-
-## Expected runtime on g5.xlarge (A10G 24 GB)
-
-| Script | Description | Estimated time |
-|--------|-------------|----------------|
-| 01 | Generate prompts | < 1 minute |
-| 02 | Extract activations (instruct + controls) | 20–40 minutes |
-| 03 | Fit probes + compute directions | 5–15 minutes |
-| 04 | Specificity / Gate 2 analysis | 5–10 minutes |
-| 05 | Generate figures | < 2 minutes |
-
----
+- `docs/research_guide.md` — comprehensive guide explaining hypotheses, experiments, methods, and interpretation
 
 ## Notes
 
-- **LLaMA-3.1-8B** requires accepting Meta's license at [huggingface.co/meta-llama/Llama-3.1-8B-Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct) before downloading.
-- Model weights are ~16 GB in float16; on a 24 GB A10G this leaves ~8 GB for activations. Default batch size is 8; reduce to 4 if you see OOM errors.
-- TransformerLens is used by default; the code falls back to plain HuggingFace `transformers` if TransformerLens can't load the model.
-- All activations are saved as compressed HDF5 (not pickle) for portability and memory efficiency.
+- Model weights are ~16 GB in float16. Default batch size is 4; reduce further if you see OOM errors.
+- Activations are saved as compressed HDF5 for portability and memory efficiency.
+- If pickle files fail to load due to a numpy version mismatch, the notebook includes a fix that reinstalls numpy and regenerates the pickles from the saved activations (no model reload needed).

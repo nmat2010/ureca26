@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"\nfrom src.directions import DirectionResults, compute_contrastive_direction\nimport numpy as np\npairwise = {\n    'self_vs_expert': np.random.randn\\(3, 10\\).astype\\(np.float32\\),\n    'self_vs_average': np.random.randn\\(3, 10\\).astype\\(np.float32\\),\n    'self_vs_animal': np.random.randn\\(3, 10\\).astype\\(np.float32\\),\n    'self_vs_object': np.random.randn\\(3, 10\\).astype\\(np.float32\\),\n}\nfor k in pairwise:\n    for l in range\\(3\\):\n        pairwise[k][l] /= np.linalg.norm\\(pairwise[k][l]\\)\ncd, cc = compute_contrastive_direction\\(pairwise\\)\nprint\\(f'directions.py OK - contrastive dir shape: {cd.shape}, consistency: {cc}'\\)\n\" && python3 -c \"\nfrom src.specificity import SpecificityResults, _inlp_project_out\nimport numpy as np\nX_train = np.random.randn\\(100, 50\\).astype\\(np.float32\\)\ny_train = np.random.randint\\(0, 2, 100\\)\nX_test = np.random.randn\\(20, 50\\).astype\\(np.float32\\)\nXr, Xt, n = _inlp_project_out\\(X_train, y_train, X_test, max_iter=3\\)\nprint\\(f'specificity.py OK - INLP removed {n} directions, shape: {Xr.shape}'\\)\n\" && python3 -c \"\nfrom src.steering import run_steering_experiment\nprint\\('steering.py OK'\\)\n\" && python3 -c \"\nfrom src.verification import check_meta_distanced_compliance\nprint\\('verification.py OK'\\)\n\")",
+      "Bash(pip3 install)"
+    ]
+  }
+}

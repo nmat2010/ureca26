@@ -76,6 +76,8 @@ class DirectionResults:
     pairwise_directions: Dict[str, np.ndarray]                # key -> (L, D)
     pairwise_cosine_similarity: np.ndarray                    # (L, 4, 4)
     pairwise_avg_cosine_similarity: np.ndarray                # (L,)
+    contrastive_direction: np.ndarray                         # (L, D) — SVD first principal component
+    contrastive_consistency: np.ndarray                       # (L,) — fraction of variance explained
     entity_projections: np.ndarray                            # (L, N)
     entity_projection_labels: np.ndarray                      # (N,)
     kruskal_pvalues: np.ndarray                               # (L,)
@@ -325,6 +327,52 @@ def compute_pairwise_directions(
 
 
 # ---------------------------------------------------------------------------
+# 3b. Contrastive direction via SVD (Fix 3)
+# ---------------------------------------------------------------------------
+
+def compute_contrastive_direction(
+    pairwise_directions: Dict[str, np.ndarray],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Find the direction most consistent across all pairwise self-vs-other contrasts.
+
+    Stacks the four pairwise directions (self_vs_expert, self_vs_average,
+    self_vs_animal, self_vs_object) into a (4, D) matrix per layer and takes
+    the first principal component via SVD. If the self/other direction is
+    truly a single underlying concept, this first PC should capture most of
+    the variance (high consistency score).
+
+    Returns
+    -------
+    contrastive_dir: (L, D) unit vectors — first principal component per layer
+    consistency: (L,) float — fraction of variance explained by PC1 (σ₁² / Σσᵢ²)
+    """
+    pair_names = sorted(pairwise_directions.keys())
+    L = pairwise_directions[pair_names[0]].shape[0]
+    D = pairwise_directions[pair_names[0]].shape[1]
+    n_pairs = len(pair_names)
+
+    contrastive_dir = np.zeros((L, D), dtype=np.float32)
+    consistency = np.zeros(L, dtype=np.float64)
+
+    for layer in range(L):
+        # Stack pairwise directions: (n_pairs, D)
+        mat = np.stack([pairwise_directions[name][layer] for name in pair_names])
+
+        # SVD
+        U, S, Vt = np.linalg.svd(mat, full_matrices=False)
+        contrastive_dir[layer] = _unit(Vt[0].astype(np.float32))
+
+        # Consistency: fraction of variance explained by first singular value
+        total_var = (S ** 2).sum()
+        if total_var > 1e-10:
+            consistency[layer] = float(S[0] ** 2 / total_var)
+        else:
+            consistency[layer] = 0.0
+
+    return contrastive_dir, consistency
+
+
+# ---------------------------------------------------------------------------
 # 4. Hierarchical projection + statistical tests
 # ---------------------------------------------------------------------------
 
@@ -433,6 +481,17 @@ def find_directions(
         activations, labels
     )
 
+    # 3b. Contrastive direction via SVD (Fix 3)
+    logger.info("Computing contrastive direction (SVD of pairwise directions)...")
+    contrastive_dir, contrastive_consistency = compute_contrastive_direction(
+        pairwise_dirs
+    )
+    best_layer_consistency = contrastive_consistency[best_probe_layer]
+    logger.info(
+        "Contrastive consistency at best layer %d: %.3f",
+        best_probe_layer, best_layer_consistency,
+    )
+
     # 4. Projections + stats (using mean-diff direction)
     logger.info("Computing entity projections and statistical tests...")
     projections, kruskal_pvals, mw_pvals = compute_entity_projections(
@@ -448,6 +507,8 @@ def find_directions(
         pairwise_directions=pairwise_dirs,
         pairwise_cosine_similarity=cosine_matrix,
         pairwise_avg_cosine_similarity=avg_cosine,
+        contrastive_direction=contrastive_dir,
+        contrastive_consistency=contrastive_consistency,
         entity_projections=projections,
         entity_projection_labels=labels,
         kruskal_pvalues=kruskal_pvals,

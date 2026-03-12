@@ -59,6 +59,8 @@ class SpecificityResults:
     cos_self_grammatical: np.ndarray                   # (L,)
     cos_self_animacy: np.ndarray                       # (L,)
     best_specific_layer: int
+    combined_layer_score: np.ndarray                   # (L,) = test_acc * (1 - mean_|cos|)
+    best_combined_layer: int                           # argmax of combined_layer_score
     control_projections: Dict[str, Dict[str, Tuple[float, float, float]]]
     residual_probe_acc: np.ndarray                     # (L,)
     residual_probe_acc_original: np.ndarray            # (L,)
@@ -74,6 +76,7 @@ class SpecificityResults:
             "layer": list(range(self.n_layers)),
             "cos_self_grammatical": self.cos_self_grammatical,
             "cos_self_animacy": self.cos_self_animacy,
+            "combined_layer_score": self.combined_layer_score,
             "residual_probe_acc": self.residual_probe_acc,
             "original_probe_acc": self.residual_probe_acc_original,
         }).to_csv(output_dir / "specificity_summary.csv", index=False)
@@ -137,6 +140,61 @@ def _project_out(
     d = _unit(direction).astype(np.float32)
     projection = (activations @ d)[:, None] * d[None, :]
     return activations - projection
+
+
+def _inlp_project_out(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    max_iter: int = 5,
+    accuracy_threshold: float = 0.55,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Iterative Null-space Projection (INLP) for confound removal.
+
+    Iteratively trains a linear classifier on the confound label, removes the
+    classifier's decision boundary from the activation space, and repeats
+    until the classifier can no longer distinguish the confound above chance.
+
+    This is strictly more thorough than single-direction project_out because a
+    confound may span multiple linearly independent directions.
+
+    Parameters
+    ----------
+    X_train: (N_train, D) — training activations
+    y_train: (N_train,) — binary confound labels for training
+    X_test: (N_test, D) — test activations (projected in parallel)
+    max_iter: maximum number of INLP iterations
+    accuracy_threshold: stop when confound probe accuracy drops below this
+
+    Returns
+    -------
+    X_train_clean: (N_train, D) — activations with confound subspace removed
+    X_test_clean: (N_test, D) — test activations with same projection applied
+    n_iter: number of directions removed
+    """
+    X_tr = X_train.copy().astype(np.float64)
+    X_te = X_test.copy().astype(np.float64)
+
+    for i in range(max_iter):
+        # Train a probe on the confound
+        scaler = StandardScaler()
+        X_tr_s = scaler.fit_transform(X_tr)
+
+        probe = LogisticRegression(C=1.0, max_iter=500, solver="lbfgs", random_state=42)
+        probe.fit(X_tr_s, y_train)
+        acc = probe.score(X_tr_s, y_train)
+
+        if acc < accuracy_threshold:
+            break
+
+        # Get the confound direction and project it out
+        w = probe.coef_[0].astype(np.float64)
+        w = w / (np.linalg.norm(w) + 1e-10)
+        # Project out from unscaled activations
+        X_tr -= (X_tr @ w)[:, None] * w[None, :]
+        X_te -= (X_te @ w)[:, None] * w[None, :]
+
+    return X_tr.astype(np.float32), X_te.astype(np.float32), i + 1
 
 
 # ---------------------------------------------------------------------------
@@ -296,14 +354,32 @@ def compute_residual_probe_accuracy(
     grammatical_dirs: np.ndarray,
     animacy_dirs: np.ndarray,
     cv_folds: int = 5,
+    use_inlp: bool = True,
+    inlp_max_iter: int = 5,
+    grammatical_labels_train: Optional[np.ndarray] = None,
+    grammatical_labels_test: Optional[np.ndarray] = None,
+    animacy_labels_train: Optional[np.ndarray] = None,
+    animacy_labels_test: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Measure probe accuracy before and after removing confound directions.
 
     At each layer:
-    - Project out grammatical-person direction
-    - Project out animacy direction
+    - Remove confound subspace using INLP (iterative null-space projection)
+      or single-direction project_out (legacy mode)
     - Fit logistic regression (Self vs not-Self) on residuals
     - Report test accuracy
+
+    Parameters
+    ----------
+    use_inlp:
+        If True, use INLP for confound removal (recommended). Falls back to
+        single-direction project_out if confound labels are not provided.
+    inlp_max_iter:
+        Maximum INLP iterations per confound.
+    grammatical_labels_train/test:
+        Binary labels for grammatical person confound (needed for INLP).
+    animacy_labels_train/test:
+        Binary labels for animacy confound (needed for INLP).
 
     Returns
     -------
@@ -312,7 +388,6 @@ def compute_residual_probe_accuracy(
     """
     N, L, D = activations.shape
     binary_labels = (labels == 0).astype(int)
-    cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
 
     residual_acc = np.zeros(L, dtype=np.float64)
     original_acc = np.zeros(L, dtype=np.float64)
@@ -321,6 +396,18 @@ def compute_residual_probe_accuracy(
     X_test_all = activations[test_mask]
     y_train = binary_labels[train_mask]
     y_test = binary_labels[test_mask]
+
+    # Determine whether we can use INLP
+    can_inlp = (
+        use_inlp
+        and grammatical_labels_train is not None
+        and animacy_labels_train is not None
+    )
+    if use_inlp and not can_inlp:
+        logger.warning(
+            "INLP requested but confound labels not provided. "
+            "Falling back to single-direction project_out."
+        )
 
     for layer in range(L):
         # Original
@@ -335,12 +422,24 @@ def compute_residual_probe_accuracy(
         probe_orig.fit(X_tr_s, y_train)
         original_acc[layer] = probe_orig.score(X_te_s, y_test)
 
-        # Residual: project out both confound directions
-        gram_dir = grammatical_dirs[layer]
-        anim_dir = animacy_dirs[layer]
-
-        X_tr_res = _project_out(_project_out(X_tr, gram_dir), anim_dir)
-        X_te_res = _project_out(_project_out(X_te, gram_dir), anim_dir)
+        # Residual: remove confound subspace
+        if can_inlp:
+            # INLP: iteratively remove grammatical person directions
+            X_tr_res, X_te_res, n1 = _inlp_project_out(
+                X_tr.copy(), grammatical_labels_train, X_te.copy(),
+                max_iter=inlp_max_iter,
+            )
+            # Then iteratively remove animacy directions
+            X_tr_res, X_te_res, n2 = _inlp_project_out(
+                X_tr_res, animacy_labels_train, X_te_res,
+                max_iter=inlp_max_iter,
+            )
+        else:
+            # Legacy: single-direction project_out
+            gram_dir = grammatical_dirs[layer]
+            anim_dir = animacy_dirs[layer]
+            X_tr_res = _project_out(_project_out(X_tr, gram_dir), anim_dir)
+            X_te_res = _project_out(_project_out(X_te, gram_dir), anim_dir)
 
         scaler_res = StandardScaler()
         X_tr_res_s = scaler_res.fit_transform(X_tr_res)
@@ -368,10 +467,13 @@ def test_specificity(
     control_activations_by_type: Dict[str, np.ndarray],
     control_labels_by_type: Dict[str, np.ndarray],
     best_probe_layer: int,
+    probe_test_acc: Optional[np.ndarray] = None,
     n_bootstrap: int = 1000,
     cv_folds: int = 5,
     animacy_acts_animate: Optional[np.ndarray] = None,
     animacy_acts_inanimate: Optional[np.ndarray] = None,
+    use_inlp: bool = True,
+    inlp_max_iter: int = 5,
 ) -> SpecificityResults:
     """Run all Gate-2 analyses.
 
@@ -440,11 +542,46 @@ def test_specificity(
         self_other_dirs, best_probe_layer, n_bootstrap,
     )
 
-    # 4. Residual analysis
+    # 4. Combined layer selection score (Fix 2)
+    # Balances probe accuracy against confound overlap:
+    #   score(l) = test_acc(l) * (1 - mean_|cos_confound|(l))
+    # This penalises layers where the self/other direction is highly
+    # aligned with grammatical person or animacy confounds.
+    if probe_test_acc is not None:
+        combined_score = probe_test_acc * (1.0 - mean_cos)
+        best_combined = int(np.argmax(combined_score))
+        logger.info(
+            "Best combined layer: %d (score=%.3f, acc=%.3f, mean_|cos|=%.3f)",
+            best_combined, combined_score[best_combined],
+            probe_test_acc[best_combined], mean_cos[best_combined],
+        )
+    else:
+        combined_score = np.zeros(L)
+        best_combined = best_specific_layer
+        logger.warning("probe_test_acc not provided; combined layer score unavailable.")
+
+    # 5. Residual analysis
     logger.info("Computing residual probe accuracy...")
+
+    # Build confound labels for INLP from core activations
+    # Grammatical: self (first-person, label=1) vs others (third-person, label=0)
+    gram_labels = (core_labels == 0).astype(int)
+    gram_labels_train = gram_labels[train_mask]
+    gram_labels_test = gram_labels[test_mask]
+    # Animacy: animate (labels 0-3, label=1) vs inanimate (label 4, label=0)
+    anim_labels = (core_labels < 4).astype(int)
+    anim_labels_train = anim_labels[train_mask]
+    anim_labels_test = anim_labels[test_mask]
+
     residual_acc, original_acc = compute_residual_probe_accuracy(
         core_activations, core_labels, train_mask, test_mask,
         gram_dirs, anim_dirs, cv_folds,
+        use_inlp=use_inlp,
+        inlp_max_iter=inlp_max_iter,
+        grammatical_labels_train=gram_labels_train,
+        grammatical_labels_test=gram_labels_test,
+        animacy_labels_train=anim_labels_train,
+        animacy_labels_test=anim_labels_test,
     )
 
     return SpecificityResults(
@@ -453,6 +590,8 @@ def test_specificity(
         cos_self_grammatical=cos_gram,
         cos_self_animacy=cos_anim,
         best_specific_layer=best_specific_layer,
+        combined_layer_score=combined_score,
+        best_combined_layer=best_combined,
         control_projections=ctrl_proj,
         residual_probe_acc=residual_acc,
         residual_probe_acc_original=original_acc,
