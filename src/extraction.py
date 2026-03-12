@@ -364,6 +364,24 @@ class ActivationExtractor:
             for label in THIRD_PERSON_SELF:
                 if label in prompt.text:
                     return label
+        # Third-person AI self (e.g., "the AI assistant", "the language model")
+        if prompt.entity_class == "third_person_ai_self":
+            for label in ["the AI assistant", "the language model", "this chatbot"]:
+                if label in prompt.text:
+                    return label
+        # Meta-distanced, disavowal, graded controls — search for known entities in text
+        if prompt.entity_class in ("meta_distanced",) or \
+           prompt.entity_class.startswith(("disavowal_", "graded_")):
+            # These use various entity strings; try to find them in the text
+            from src.dataset import EXPERT_HUMANS, AVERAGE_HUMANS, ANIMALS, OBJECTS
+            for entity_list in [EXPERT_HUMANS, AVERAGE_HUMANS, ANIMALS, OBJECTS,
+                                THIRD_PERSON_SELF]:
+                for entity in entity_list:
+                    if entity in prompt.text:
+                        return entity
+        # Role-play controls with various entities
+        if prompt.entity_class.startswith("roleplay_"):
+            return "I"  # role-play uses first-person
         return "I"  # safe default
 
 
