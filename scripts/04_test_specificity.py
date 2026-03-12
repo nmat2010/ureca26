@@ -36,6 +36,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--model_name", help="Override model name.")
     p.add_argument("--token_position", choices=["final", "entity"], default="final")
     p.add_argument("--prompts_file", help="Override prompts JSON path.")
+    p.add_argument("--no_inlp", action="store_true",
+                   help="Disable INLP (faster; use simple project-out instead).")
     return p.parse_args()
 
 
@@ -158,7 +160,7 @@ def main() -> None:
         cv_folds=cv_folds,
         animacy_acts_animate=animacy_acts_animate,
         animacy_acts_inanimate=animacy_acts_inanimate,
-        use_inlp=True,
+        use_inlp=not args.no_inlp,
     )
 
     # Save
