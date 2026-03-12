@@ -180,7 +180,7 @@ def _inlp_project_out(
         scaler = StandardScaler()
         X_tr_s = scaler.fit_transform(X_tr)
 
-        probe = LogisticRegression(C=1.0, max_iter=500, solver="lbfgs", random_state=42)
+        probe = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=42)
         probe.fit(X_tr_s, y_train)
         acc = probe.score(X_tr_s, y_train)
 
@@ -418,7 +418,7 @@ def compute_residual_probe_accuracy(
         X_tr_s = scaler.fit_transform(X_tr)
         X_te_s = scaler.transform(X_te)
 
-        probe_orig = LogisticRegression(C=1.0, max_iter=1000, solver="lbfgs", random_state=42)
+        probe_orig = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=42)
         probe_orig.fit(X_tr_s, y_train)
         original_acc[layer] = probe_orig.score(X_te_s, y_test)
 
@@ -445,7 +445,7 @@ def compute_residual_probe_accuracy(
         X_tr_res_s = scaler_res.fit_transform(X_tr_res)
         X_te_res_s = scaler_res.transform(X_te_res)
 
-        probe_res = LogisticRegression(C=1.0, max_iter=1000, solver="lbfgs", random_state=42)
+        probe_res = LogisticRegression(C=1.0, max_iter=2000, solver="lbfgs", random_state=42)
         probe_res.fit(X_tr_res_s, y_train)
         residual_acc[layer] = probe_res.score(X_te_res_s, y_test)
 
